@@ -38,7 +38,7 @@ const showHistoryTab = ref(false) // 控制显示日志还是历史记录
 // 所有项目列表
 const allProjects = ref([]) // 所有项目列表
 
-// 缩略图宽高比缓存 { projectName: { ratio, isWide } }
+// 缩略图宽高比缓存 { projectName: { ratio, isWide, url } }
 const thumbnailRatios = ref({})
 
 // 分页相关
@@ -473,10 +473,28 @@ const onThumbnailLoad = (e, project) => {
   // 16:9 = 1.777...
   const isWide = ratio > 16 / 9
   
-  thumbnailRatios.value[project.name] = { ratio, isWide }
+  // 缓存比例信息，并移除时间戳使用固定 URL
+  thumbnailRatios.value[project.name] = { 
+    ratio, 
+    isWide,
+    url: `/api/projects/${project.name}/thumbnail`
+  }
+  
+  // 更新 src 移除时间戳，避免重复请求
+  img.src = `/api/projects/${project.name}/thumbnail`
   
   // 隐藏占位符
   img.nextElementSibling.style.display = 'none'
+}
+
+// 获取缩略图 URL
+const getThumbnailUrl = (project) => {
+  const cached = thumbnailRatios.value[project.name]
+  if (cached?.url) {
+    return cached.url
+  }
+  // 首次加载带时间戳获取最新图片
+  return `/api/projects/${project.name}/thumbnail?t=${Date.now()}`
 }
 
 // 获取缩略图样式
@@ -681,7 +699,7 @@ onMounted(() => {
                 <div class="project-card-thumbnail">
                   <img
                     v-if="project.has_html"
-                    :src="`/api/projects/${project.name}/thumbnail?t=${Date.now()}`"
+                    :src="getThumbnailUrl(project)"
                     alt="项目缩略图"
                     :style="getThumbnailStyle(project)"
                     @load="e => onThumbnailLoad(e, project)"
