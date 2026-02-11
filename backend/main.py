@@ -154,7 +154,7 @@ async def generate_webpage(request: GenerateRequest):
     
     # 构建完整的命令
     prompt = request.prompt.replace('"', '\\"')  # 转义引号
-    command = f'opencode run "/ui-ux-pro-max [ROLE] 你是一个专业的前端开发者，擅长将需求转化为精美的网页原型\\n[TASK] 根据用户需求生成一个完整的单文件 HTML 网页\\n[REQUIREMENTS]\\n1. 输出完整的 HTML5 代码（包含 CSS 和 JavaScript）\\n2. 将代码保存为 index.html（直接覆盖）\\n3. 无论用户需求是什么语言，生成的页面内容必须是中文为主要语言\\n4. 只生成前端代码，不需要后端逻辑\\n5. 基于用户需求自行选择UI风格，要求风格必须简洁，美观，符合现代审美\\n6. 确保 HTML 结构完整，可直接在浏览器中打开\\n[INPUT] 用户需求：{prompt}"'
+    command = f'opencode run "/ui-ux-pro-max [ROLE] 你是一个专业的前端开发者，擅长将需求转化为精美的网页原型\\n[TASK] 根据用户需求生成一个完整的单文件HTML网页，如果项目中已经存在单文件HTML网页，那就先分析用户需求是否想在原有文件风格基础上进行修改，一般来说只要用户没有特意提出类似于“重新生成XXX”的需求，那就直接在原有文件风格基础上进行修改\\n[REQUIREMENTS]\\n1. 输出完整的 HTML5 代码（包含 CSS 和 JavaScript）\\n2. 将代码保存为 index.html（直接覆盖）\\n3. 无论用户需求是什么语言，生成的页面内容必须是中文为主要语言\\n4. 只生成前端代码，不需要后端逻辑\\n5. 基于用户需求自行选择UI风格，要求风格必须简洁，美观，符合现代审美\\n6. 确保 HTML 结构完整，可直接在浏览器中打开\\n[INPUT] 用户需求：{prompt}"'
     
     cwd = CURRENT_PROJECT.get("path")
     loop = asyncio.get_event_loop()
