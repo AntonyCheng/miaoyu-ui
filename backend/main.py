@@ -131,6 +131,42 @@ async def delete_project(name: str):
     return {"message": f"项目 {name} 已删除"}
 
 
+class RenameRequest(BaseModel):
+    new_name: str
+
+
+@app.post("/api/projects/{name}/rename")
+async def rename_project(name: str, request: RenameRequest):
+    """重命名项目"""
+    if not PROJECTS_DIR:
+        raise HTTPException(status_code=400, detail="未配置项目目录")
+
+    old_project_path = os.path.join(PROJECTS_DIR, name)
+    if not os.path.exists(old_project_path):
+        raise HTTPException(status_code=404, detail=f"项目 {name} 不存在")
+
+    new_name = request.new_name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="新名称不能为空")
+
+    if new_name == name:
+        return {"message": "名称未变化", "old_name": name, "new_name": new_name}
+
+    new_project_path = os.path.join(PROJECTS_DIR, new_name)
+    if os.path.exists(new_project_path):
+        raise HTTPException(status_code=400, detail=f"项目 {new_name} 已存在")
+
+    # 重命名目录
+    os.rename(old_project_path, new_project_path)
+
+    # 如果重命名的是当前项目，更新 CURRENT_PROJECT
+    if CURRENT_PROJECT["name"] == name:
+        CURRENT_PROJECT["path"] = new_project_path
+        CURRENT_PROJECT["name"] = new_name
+
+    return {"message": f"项目 {name} 已重命名为 {new_name}", "old_name": name, "new_name": new_name}
+
+
 @app.post("/api/projects/exit")
 async def exit_project():
     """退出当前项目"""

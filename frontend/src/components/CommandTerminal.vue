@@ -13,6 +13,13 @@ const showDeleteConfirm = ref(false)
 const projectToDelete = ref(null)
 const createError = ref('')
 
+// 重命名相关状态
+const renamingProject = ref(null) // 正在重命名的项目名称（选择界面）
+const tempProjectName = ref('') // 重命名时临时存储的新名称
+const isRenamingCurrentProject = ref(false) // 是否正在重命名当前项目（Header）
+const tempCurrentProjectName = ref('') // 重命名当前项目时临时存储的新名称
+const renameError = ref('') // 重命名错误信息
+
 // 生成相关状态
 const promptText = ref('')
 const isGenerating = ref(false)
@@ -260,6 +267,143 @@ const cancelDelete = () => {
   showDeleteConfirm.value = false
   projectToDelete.value = null
 }
+
+// ========== 重命名相关方法 ==========
+
+// 开始重命名项目（选择界面）
+const startRename = (projectName) => {
+  // 如果正在生成中，禁止操作
+  if (isGenerating.value) return
+  renamingProject.value = projectName
+  tempProjectName.value = projectName
+  renameError.value = ''
+}
+
+// 取消重命名（选择界面）
+const cancelRename = () => {
+  renamingProject.value = null
+  tempProjectName.value = ''
+  renameError.value = ''
+}
+
+// 保存重命名（选择界面）
+const saveRename = async (originalName) => {
+  const newName = tempProjectName.value.trim()
+  if (!newName) {
+    cancelRename()
+    return
+  }
+
+  if (newName === originalName) {
+    cancelRename()
+    return
+  }
+
+  try {
+    const res = await fetch(`/api/projects/${originalName}/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_name: newName })
+    })
+
+    if (res.ok) {
+      renamingProject.value = null
+      tempProjectName.value = ''
+      renameError.value = ''
+      // 刷新项目列表
+      await loadProjects()
+      showToastMessage(`已将项目重命名为 "${newName}"`)
+    } else {
+      const data = await res.json()
+      renameError.value = data.detail || '重命名失败'
+    }
+  } catch (e) {
+    renameError.value = e.message
+  }
+}
+
+// 重命名输入框失去焦点时保存
+const onRenameInputBlur = (originalName) => {
+  saveRename(originalName)
+}
+
+// 重命名输入框按键事件
+const onRenameKeydown = (event, originalName) => {
+  if (event.key === 'Enter') {
+    saveRename(originalName)
+  } else if (event.key === 'Escape') {
+    cancelRename()
+  }
+}
+
+// 开始重命名当前项目（Header）
+const startRenameCurrentProject = () => {
+  if (!currentProject.value?.name) return
+  isRenamingCurrentProject.value = true
+  tempCurrentProjectName.value = currentProject.value.name
+  renameError.value = ''
+}
+
+// 取消重命名当前项目
+const cancelRenameCurrentProject = () => {
+  isRenamingCurrentProject.value = false
+  tempCurrentProjectName.value = ''
+  renameError.value = ''
+}
+
+// 保存当前项目重命名
+const saveRenameCurrentProject = async () => {
+  const originalName = currentProject.value?.name
+  const newName = tempCurrentProjectName.value.trim()
+
+  if (!newName || !originalName) {
+    cancelRenameCurrentProject()
+    return
+  }
+
+  if (newName === originalName) {
+    cancelRenameCurrentProject()
+    return
+  }
+
+  try {
+    const res = await fetch(`/api/projects/${originalName}/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_name: newName })
+    })
+
+    if (res.ok) {
+      // 更新当前项目名称
+      currentProject.value.name = newName
+      // 更新项目路径
+      const projectsRoot = PROJECTS_DIR || '..\\projects'
+      currentProject.value.path = projectsRoot + '\\' + newName
+      cancelRenameCurrentProject()
+      showToastMessage(`已将项目重命名为 "${newName}"`)
+    } else {
+      const data = await res.json()
+      renameError.value = data.detail || '重命名失败'
+    }
+  } catch (e) {
+    renameError.value = e.message
+  }
+}
+
+// 当前项目重命名输入框失去焦点
+const onCurrentProjectRenameBlur = () => {
+  saveRenameCurrentProject()
+}
+
+// 当前项目重命名输入框按键事件
+const onCurrentProjectRenameKeydown = (event) => {
+  if (event.key === 'Enter') {
+    saveRenameCurrentProject()
+  } else if (event.key === 'Escape') {
+    cancelRenameCurrentProject()
+  }
+}
+// ========== 重命名相关方法结束 ==========
 
 const exitProject = async () => {
   if (isGenerating.value) return // 生成中禁止退出
@@ -574,21 +718,64 @@ onMounted(() => {
           </div>
           
           <div class="project-list">
-            <div 
-              v-for="project in projectNames" 
+            <div
+              v-for="project in projectNames"
               :key="project"
               class="project-item"
+              :class="{ 'renaming': renamingProject === project }"
               @click="selectProject(project)"
             >
               <span class="icon-container">📁</span>
-              <span class="project-name">{{ project }}</span>
-              <button 
-                class="delete-btn" 
-                @click.stop="confirmDelete(project)"
-                title="删除项目"
-              >
-                🗑️
-              </button>
+
+              <!-- 非编辑状态：显示项目名称 -->
+              <template v-if="renamingProject !== project">
+                <span class="project-name">{{ project }}</span>
+                <div class="item-actions">
+                  <button
+                    class="icon-btn delete-btn"
+                    @click.stop="confirmDelete(project)"
+                    title="删除项目"
+                  >
+                  &nbsp;&nbsp;🗑️&nbsp;&nbsp;
+                  </button>
+                  <button
+                    class="icon-btn rename-btn"
+                    @click.stop="startRename(project)"
+                    title="重命名项目"
+                  >
+                  ✏️
+                  </button>
+                </div>
+              </template>
+
+              <!-- 编辑状态：显示输入框 -->
+              <template v-else>
+                <input
+                  v-model="tempProjectName"
+                  class="rename-input"
+                  @keydown="onRenameKeydown($event, project)"
+                  @blur="onRenameInputBlur(project)"
+                  ref="renameInputRef"
+                  placeholder="输入新名称..."
+                  @click.stop
+                >
+                <div class="item-actions">
+                  <button
+                    class="icon-btn confirm-rename-btn"
+                    @click.stop="saveRename(project)"
+                    title="确认"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    class="icon-btn cancel-rename-btn"
+                    @click.stop="cancelRename"
+                    title="取消"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </template>
             </div>
           </div>
           
@@ -639,6 +826,28 @@ onMounted(() => {
       <div class="terminal-content" ref="terminalContentRef" @scroll="handleScroll">
         <!-- 预览区域 -->
         <div class="preview-area" ref="previewRef">
+          <!-- 左上角项目名称 -->
+          <div class="current-project-header">
+            <div class="current-project-name">
+              <!-- 非编辑状态：显示项目名称 -->
+              <template v-if="isRenamingCurrentProject">
+                <input
+                  v-model="tempCurrentProjectName"
+                  class="current-project-rename-input"
+                  @keydown="onCurrentProjectRenameKeydown($event)"
+                  @blur="onCurrentProjectRenameBlur"
+                  ref="currentProjectRenameInputRef"
+                  placeholder="输入新名称..."
+                >
+              </template>
+              <template v-else>
+                <span
+                  class="project-title"
+                  @click="startRenameCurrentProject"
+                >{{ currentProject?.name || '未命名项目' }}</span>
+              </template>
+            </div>
+          </div>
           <!-- 有html时渲染预览 -->
           <template v-if="htmlUrl">
             <!-- 预览容器 -->
@@ -674,7 +883,7 @@ onMounted(() => {
           <button 
             @click="generateWebpage" 
             :disabled="isGenerating || !promptText.trim()"
-            class="generate-btn"
+            class="action-btn blue-btn"
           >
             <span v-if="!isGenerating">生 成</span>
             <span v-else class="loading-btn">
@@ -682,30 +891,30 @@ onMounted(() => {
               生成中...
             </span>
           </button>
-          <button 
-            class="refresh-btn"
+          <button
+            class="action-btn blue-btn"
             @click="refreshPreview"
           >
             刷 新
           </button>
-          <button 
+          <button
+            class="action-btn blue-btn"
             @click="openOutputModal"
-            class="output-btn"
             title="查看日志"
           >
             日 志
           </button>
-          <button 
-            class="capture-btn"
+          <button
+            class="action-btn green-btn"
             @click="captureThumbnail"
             :disabled="isCapturing"
           >
             <span v-if="!isCapturing">截 图</span>
             <span v-else>截图中...</span>
           </button>
-          <button 
-            class="exit-btn-red" 
-            @click="exitProject" 
+          <button
+            class="action-btn red-btn"
+            @click="exitProject"
             title="退出当前项目"
             :disabled="isGenerating"
             :class="{ 'disabled': isGenerating }"
@@ -715,10 +924,10 @@ onMounted(() => {
         </div>
         <p v-if="generateError" class="error-message">{{ generateError }}</p>
       </div>
-      
+
       <!-- 悬浮滚动按钮 -->
       <div class="scroll-float-btn" @click="toggleScroll">
-        {{ isAtTop ? '更 多 项 目' : '当 前 项 目' }}
+        {{ isAtTop ? '更多项目' : '当前项目' }}
       </div>
       
       <!-- 项目卡片列表 -->
@@ -866,65 +1075,226 @@ onMounted(() => {
   height: 100vh;
 }
 
-.refresh-btn {
+/* ========== 重命名相关样式 ========== */
+
+/* 项目列表操作按钮容器 */
+.project-item .item-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.project-item:hover .item-actions {
+  opacity: 1;
+}
+
+/* 重命名状态下显示操作按钮 */
+.project-item.renaming .item-actions {
+  opacity: 1 !important;
+}
+
+/* 图标按钮通用样式 */
+.icon-btn {
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: all 0.2s;
+}
+
+/* 删除按钮 */
+.delete-btn {
+  color: #f14c4c;
+}
+
+.delete-btn:hover {
+  background-color: rgba(241, 76, 76, 0.2);
+}
+
+/* 重命名按钮 */
+.rename-btn {
+  color: #569cd6;
+}
+
+.rename-btn:hover {
+  background-color: rgba(86, 156, 214, 0.2);
+}
+
+/* 确认重命名按钮 */
+.confirm-rename-btn {
+  color: #22c55e;
+}
+
+.confirm-rename-btn:hover {
+  background-color: rgba(34, 197, 94, 0.2);
+}
+
+/* 取消重命名按钮 */
+.cancel-rename-btn {
+  color: #f14c4c;
+}
+
+.cancel-rename-btn:hover {
+  background-color: rgba(241, 76, 76, 0.2);
+}
+
+/* 重命名输入框 */
+.rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  background-color: #2d2d30;
+  border: 1px solid #569cd6;
+  border-radius: 4px;
+  color: #d4d4d4;
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+  text-align: center;
+}
+
+.rename-input:focus {
+  border-color: #569cd6;
+  box-shadow: 0 0 0 2px rgba(86, 156, 214, 0.2);
+}
+
+/* 重命名状态的项目项 */
+.project-item.renaming {
+  background-color: #353538;
+  border-color: rgba(86, 156, 214, 0.5);
+}
+
+/* ========== 当前项目 Header 样式 ========== */
+
+/* 左上角项目名称区域 - 固定在"更多项目"按钮正上方 */
+.current-project-header {
+  position: fixed;
+  right: 20px;
+  bottom: 155px;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.current-project-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.project-title {
+  font-size: 15px;
+  color: #ffffff;
+  font-family: "Microsoft YaHei", "SimHei", sans-serif;
+  pointer-events: auto;
+  cursor: pointer;
   padding: 10px 20px;
-  border: 1px solid rgba(86, 156, 214, 0.5);
+  background-color: rgba(94, 92, 92, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 30px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.project-title:hover {
+  background-color: rgba(70, 70, 70, 0.8);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* 当前项目重命名输入框 */
+.current-project-rename-input {
+  padding: 6px 12px;
+  background-color: #2d2d30;
+  border: 1px solid #569cd6;
+  border-radius: 4px;
+  color: #569cd6;
+  font-family: "Microsoft YaHei", "SimHei", sans-serif;
+  font-size: 16px;
+  font-weight: bold;
+  outline: none;
+  min-width: 200px;
+}
+
+.current-project-rename-input:focus {
+  border-color: #569cd6;
+  box-shadow: 0 0 0 2px rgba(86, 156, 214, 0.2);
+}
+
+/* ========== 按钮样式 ========== */
+
+/* 通用按钮样式 */
+.action-btn {
+  padding: 10px 20px;
   border-radius: 30px;
   cursor: pointer;
   font-family: "Microsoft YaHei Bold", "Microsoft YaHei", "SimHei", sans-serif;
   font-size: 15px;
   font-weight: bold;
-  background-color: rgba(86, 156, 214, 0.85);
-  color: white;
   white-space: nowrap;
   transition: all 0.3s ease;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 2px 8px rgba(86, 156, 214, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.refresh-btn:hover {
+/* 蓝色按钮 */
+.blue-btn {
+  border: 1px solid rgba(86, 156, 214, 0.5);
+  background-color: rgba(86, 156, 214, 0.85);
+  color: white;
+}
+
+.blue-btn:hover:not(:disabled) {
   background-color: rgba(86, 156, 214, 1);
   box-shadow: 0 4px 12px rgba(86, 156, 214, 0.5);
   transform: translateY(-1px);
 }
 
-.capture-btn {
-  padding: 10px 20px;
+/* 绿色按钮 */
+.green-btn {
   border: 1px solid rgba(34, 197, 94, 0.5);
-  border-radius: 30px;
-  cursor: pointer;
-  font-family: "Microsoft YaHei Bold", "Microsoft YaHei", "SimHei", sans-serif;
-  font-size: 15px;
-  font-weight: bold;
   background-color: rgba(34, 197, 94, 0.85);
   color: white;
-  white-space: nowrap;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
 }
 
-.capture-btn:hover {
+.green-btn:hover:not(:disabled) {
   background-color: rgba(34, 197, 94, 1);
   box-shadow: 0 4px 12px rgba(34, 197, 94, 0.5);
   transform: translateY(-1px);
 }
 
-.capture-btn:hover:not(:disabled) {
-  background-color: #1ea550;
+/* 红色按钮 */
+.red-btn {
+  border: 1px solid rgba(241, 76, 76, 0.5);
+  background-color: rgba(241, 76, 76, 0.85);
+  color: white;
 }
 
-.capture-btn:disabled {
+.red-btn:hover:not(:disabled) {
+  background-color: rgba(241, 76, 76, 1);
+  box-shadow: 0 4px 12px rgba(241, 76, 76, 0.5);
+  transform: translateY(-1px);
+}
+
+/* 按钮禁用状态 */
+.action-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ========== 重命名相关样式结束 ========== */
 
 .preview-container {
   position: relative;
   flex: 1;
   overflow: hidden;
+  z-index: 1;
+  pointer-events: auto;
 }
 
 .preview-container.capturing {
@@ -1038,58 +1408,6 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-.generate-btn {
-  padding: 10px 20px;
-  background-color: rgba(86, 156, 214, 0.85);
-  color: white;
-  border: 1px solid rgba(86, 156, 214, 0.5);
-  border-radius: 30px;
-  cursor: pointer;
-  font-family: "Microsoft YaHei Bold", "Microsoft YaHei", "SimHei", sans-serif;
-  font-size: 15px;
-  font-weight: bold;
-  white-space: nowrap;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 2px 8px rgba(86, 156, 214, 0.3);
-}
-
-.generate-btn:hover:not(:disabled) {
-  background-color: rgba(86, 156, 214, 1);
-  box-shadow: 0 4px 12px rgba(86, 156, 214, 0.5);
-  transform: translateY(-1px);
-}
-
-.generate-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* 输出按钮 */
-.output-btn {
-  padding: 10px 20px;
-  background-color: rgba(86, 156, 214, 0.85);
-  color: white;
-  border: 1px solid rgba(86, 156, 214, 0.5);
-  border-radius: 30px;
-  cursor: pointer;
-  font-family: "Microsoft YaHei Bold", "Microsoft YaHei", "SimHei", sans-serif;
-  font-size: 15px;
-  font-weight: bold;
-  white-space: nowrap;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 2px 8px rgba(86, 156, 214, 0.3);
-}
-
-.output-btn:hover {
-  background-color: rgba(86, 156, 214, 1);
-  box-shadow: 0 4px 12px rgba(86, 156, 214, 0.5);
-  transform: translateY(-1px);
-}
-
 .loading-btn {
   display: flex;
   align-items: center;
@@ -1109,33 +1427,6 @@ onMounted(() => {
   to { transform: rotate(360deg); }
 }
 
-.exit-btn-red {
-  padding: 10px 20px;
-  background-color: rgba(241, 76, 76, 0.85);
-  color: white;
-  border: 1px solid rgba(241, 76, 76, 0.5);
-  border-radius: 30px;
-  cursor: pointer;
-  font-family: "Microsoft YaHei Bold", "Microsoft YaHei", "SimHei", sans-serif;
-  font-size: 15px;
-  font-weight: bold;
-  white-space: nowrap;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 2px 8px rgba(241, 76, 76, 0.3);
-}
-
-.exit-btn-red:hover:not(:disabled) {
-  background-color: rgba(241, 76, 76, 1);
-  box-shadow: 0 4px 12px rgba(241, 76, 76, 0.5);
-  transform: translateY(-1px);
-}
-
-.exit-btn-red:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
 .output-modal-overlay {
   position: fixed;
   top: 0;
@@ -1690,7 +1981,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   background-color: #1e1e1e;
-  overflow: hidden;
   position: relative;
 }
 
