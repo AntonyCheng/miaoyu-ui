@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, nextTick, computed, shallowRef } from 'vue'
 import html2canvas from 'html2canvas'
 
 const output = ref('')
@@ -35,10 +35,13 @@ const terminalContentRef = ref(null) // 主滚动容器的 ref
 // 历史提示词记录
 const promptHistory = ref([])
 const showHistoryTab = ref(false) // 控制显示日志还是历史记录
-// 所有项目列表
-const allProjects = ref([]) // 所有项目列表
+// 所有项目列表 - 对象数组（用于项目卡片展示）
+const allProjects = shallowRef([])
 
-// 缩略图宽高比缓存 { projectName: { ratio, isWide, url } }
+// 项目名称列表 - 字符串数组（用于项目选择界面）
+const projectNames = shallowRef([])
+
+// 缩略图宽高比缓存
 const thumbnailRatios = ref({})
 
 // 分页相关
@@ -47,11 +50,24 @@ const pageSize = 6
 const totalPages = ref(1)
 const total = ref(0)
 
-// 排除当前项目后的其他项目列表（前端过滤）
-const filteredProjects = computed(() => {
-  if (!currentProject.value?.name) return allProjects.value
-  return allProjects.value.filter(p => p.name !== currentProject.value.name)
-})
+// 请求锁（防止重复请求）
+let isLoadingProjects = false
+
+// 上一页 (后端分页)
+const prevPage = () => {
+  if (currentPage.value > 1) {
+    currentPage.value--
+    loadProjectCards()
+  }
+}
+
+// 下一页 (后端分页)
+const nextPage = () => {
+  if (currentPage.value < totalPages.value) {
+    currentPage.value++
+    loadProjectCards()
+  }
+}
 
 // 复制提示词反馈状态
 const copiedProject = ref(null) // 记录哪个项目刚刚被复制了
@@ -77,20 +93,36 @@ const showToastMessage = (message) => {
   }, 2000)
 }
 
-// 当前页的项目列表
-const paginatedProjects = computed(() => {
-  return filteredProjects.value.slice(0, pageSize)
-})
-
 const loadProjects = async () => {
   try {
     const res = await fetch('/api/projects')
     const data = await res.json()
-    projects.value = data.projects || []
+    // 项目选择界面需要字符串数组
+    projectNames.value = data.projects || []
     currentProject.value = data.current_project
     showProjectSelector.value = !data.current_project?.name
   } catch (e) {
     console.error('加载项目列表失败:', e)
+  }
+}
+
+// 加载项目卡片数据（带详细信息，使用分页）
+const loadProjectCards = async () => {
+  if (isLoadingProjects) return  // 防止重复请求
+  isLoadingProjects = true
+  
+  try {
+    const res = await fetch(`/api/projects/list?page=${currentPage.value}&page_size=${pageSize}`)
+    const data = await res.json()
+    // 项目卡片需要对象数组
+    allProjects.value = data.projects || []
+    total.value = data.total || 0
+    totalPages.value = data.total_pages || 1
+  } catch (e) {
+    console.error('加载项目卡片失败:', e)
+    allProjects.value = []
+  } finally {
+    isLoadingProjects = false
   }
 }
 
@@ -137,25 +169,11 @@ const loadPromptHistory = async () => {
   }
 }
 
-// 加载所有项目列表
-const loadAllProjects = async () => {
-  try {
-    const res = await fetch(`/api/projects/list?page=${currentPage.value}&page_size=${pageSize}`)
-    const data = await res.json()
-    allProjects.value = data.projects || []
-    total.value = data.total || 0
-    totalPages.value = data.total_pages || 1
-  } catch (e) {
-    console.error('加载项目列表失败:', e)
-    allProjects.value = []
-  }
-}
-
-// 跳转到指定页
+// 跳转到指定页 (后端分页)
 const goToPage = (page) => {
   if (page < 1 || page > totalPages.value) return
   currentPage.value = page
-  loadAllProjects()
+  loadProjectCards()  // 重新请求后端获取当前页数据
   // 滚动到项目列表顶部
   const container = projectsListRef.value
   if (container) {
@@ -180,8 +198,8 @@ const selectProject = async (name) => {
     
     // 加载历史提示词记录
     await loadPromptHistory()
-    // 加载所有项目列表
-    await loadAllProjects()
+    // 加载项目卡片数据（带详细信息）
+    await loadProjectCards()
   } catch (e) {
     output.value += `Error: ${e.message}\n`
   }
@@ -473,28 +491,35 @@ const onThumbnailLoad = (e, project) => {
   // 16:9 = 1.777...
   const isWide = ratio > 16 / 9
   
-  // 缓存比例信息，并移除时间戳使用固定 URL
+  // 缓存比例信息
   thumbnailRatios.value[project.name] = { 
     ratio, 
-    isWide,
-    url: `/api/projects/${project.name}/thumbnail`
+    isWide
   }
-  
-  // 更新 src 移除时间戳，避免重复请求
-  img.src = `/api/projects/${project.name}/thumbnail`
   
   // 隐藏占位符
   img.nextElementSibling.style.display = 'none'
 }
 
+// 缩略图加载失败（统一处理函数）
+const onThumbnailError = (e) => {
+  e.target.style.display = 'none'
+  e.target.nextElementSibling.style.display = 'flex'
+}
+
 // 获取缩略图 URL
+// 缩略图 URL 缓存（避免重复请求）
+const thumbnailUrlCache = new Map()
+
 const getThumbnailUrl = (project) => {
-  const cached = thumbnailRatios.value[project.name]
-  if (cached?.url) {
-    return cached.url
+  // 从缓存获取固定 URL
+  if (thumbnailUrlCache.has(project.name)) {
+    return thumbnailUrlCache.get(project.name)
   }
-  // 首次加载带时间戳获取最新图片
-  return `/api/projects/${project.name}/thumbnail?t=${Date.now()}`
+  // 首次请求带时间戳获取最新图片
+  const url = `/api/projects/${project.name}/thumbnail`
+  thumbnailUrlCache.set(project.name, url)
+  return url
 }
 
 // 获取缩略图样式
@@ -537,7 +562,7 @@ onMounted(() => {
           
           <div class="project-list">
             <div 
-              v-for="project in projects" 
+              v-for="project in projectNames" 
               :key="project"
               class="project-item"
               @click="selectProject(project)"
@@ -554,7 +579,7 @@ onMounted(() => {
             </div>
           </div>
           
-          <div v-if="projects.length === 0" class="no-projects">
+          <div v-if="projectNames.length === 0" class="no-projects">
             暂无可用项目
           </div>
           
@@ -686,10 +711,10 @@ onMounted(() => {
       <!-- 项目卡片列表 -->
       <div class="projects-list-container" ref="projectsListRef">
         <div class="projects-list-content">
-          <template v-if="paginatedProjects.length > 0">
+          <template v-if="allProjects.length > 0">
             <div class="projects-grid">
               <div
-                v-for="project in paginatedProjects"
+                v-for="project in allProjects"
                 :key="project.name"
                 class="project-card"
                 :class="{ 'transitioning': transitioningProject === project.name }"
@@ -703,7 +728,7 @@ onMounted(() => {
                     alt="项目缩略图"
                     :style="getThumbnailStyle(project)"
                     @load="e => onThumbnailLoad(e, project)"
-                    @error="e => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'flex'; }"
+                    @error="onThumbnailError"
                   >
                   <div class="thumbnail-placeholder">
                     <span class="thumbnail-emoji">✨</span>

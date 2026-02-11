@@ -4,7 +4,7 @@
 
 ```bash
 cd backend
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 18000
 ```
 
 ### 2. 启动前端
