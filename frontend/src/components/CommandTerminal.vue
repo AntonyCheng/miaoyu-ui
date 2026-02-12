@@ -247,7 +247,10 @@ const quickGenerate = async () => {
       // 5. 进入项目
       showProjectSelector.value = false
 
-      // 6. 自动生成
+      // 6. 显示创建项目提示
+      showToastMessage(`已创建"${projectName}"项目，正在妙语生花...`)
+
+      // 7. 自动生成
       await generateWebpage()
     } else {
       const data = await res.json()
