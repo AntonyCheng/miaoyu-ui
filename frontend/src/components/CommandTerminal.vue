@@ -713,10 +713,25 @@ onMounted(() => {
       <div class="selector-scroll-container" ref="selectorScrollRef">
         <div class="selector-content">
           <div class="selector-header">
-            <h2>一句话生成网页原型</h2>
-            <p class="selector-subtitle">选择或新建项目，开始创作原型吧！</p>
+            <h1>妙语UI</h1>
+            <p class="selector-subtitle">给灵感一句妙语提示，还创意一个前端原型</p>
           </div>
           
+          <div class="create-project">
+            <div class="input-group">
+              <input 
+                v-model="newProjectName" 
+                @keydown.enter="createProject"
+                @input="onNameInput"
+                placeholder="输入新项目名称..."
+                :class="{ 'input-error': createError }"
+              >
+              <button @click="createProject">创建</button>
+            </div>
+            <p v-if="createError" class="error-message">{{ createError }}</p>
+          </div>
+
+          <h3>选择现有项目</h3>
           <div class="project-list">
             <div
               v-for="project in projectNames"
@@ -783,20 +798,6 @@ onMounted(() => {
             暂无可用项目
           </div>
           
-          <div class="create-project">
-            <h3>新建项目</h3>
-            <div class="input-group">
-              <input 
-                v-model="newProjectName" 
-                @keydown.enter="createProject"
-                @input="onNameInput"
-                placeholder="输入新项目名称..."
-                :class="{ 'input-error': createError }"
-              >
-              <button @click="createProject">创建</button>
-            </div>
-            <p v-if="createError" class="error-message">{{ createError }}</p>
-          </div>
         </div>
       </div>
       
@@ -1638,7 +1639,7 @@ onMounted(() => {
   align-items: flex-start;
   background-color: #1e1e1e;
   position: relative;
-  padding-top: 40px;
+  padding-top: 70px;
 }
 
 /* 项目选择器滚动容器 */
@@ -1680,22 +1681,28 @@ onMounted(() => {
   flex-direction: column;
 }
 
+.selector-content h3 {
+  color: #d4d4d4;
+  font-size: 16px;
+  text-align: center;
+}
+
 .selector-header {
   margin-bottom: 25px;
   text-align: center;
 }
 
-.selector-header h2 {
-  color: #569cd6;
+.selector-header h1 {
+  color: #6ab8f8;
   margin-bottom: 10px;
-  font-size: 24px;
+  font-size: 35px;
   font-family: "Microsoft YaHei Bold", "Microsoft YaHei", sans-serif;
   font-weight: bold;
 }
 
 .selector-subtitle {
   color: #569cd6;
-  font-size: 16px;
+  font-size: 20px;
   margin: 0;
   font-family: "Microsoft YaHei", sans-serif;
   font-weight: bold;
@@ -1704,7 +1711,8 @@ onMounted(() => {
 .selector-content h3 {
   color: #d4d4d4;
   margin: 20px 0 15px;
-  font-size: 15px;
+  font-family: "Microsoft YaHei", sans-serif;
+  font-size: 20px;
 }
 
 /* 项目列表 - 网格布局 */
@@ -1712,7 +1720,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
-  max-height: 400px;
+  max-height: 450px;
   overflow-y: auto;
   scrollbar-width: none; /* Firefox */
 }
@@ -1765,6 +1773,7 @@ onMounted(() => {
   font-weight: 500;
   text-align: center;
   word-break: break-all;
+  font-weight: bold;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -1806,16 +1815,8 @@ onMounted(() => {
 }
 
 .create-project {
-  margin-top: 25px;
-  padding-top: 25px;
-  border-top: 1px solid #333;
-}
-
-.create-project h3 {
-  margin-bottom: 15px;
-  color: #d4d4d4;
-  font-size: 16px;
-  text-align: center;
+  padding-bottom: 25px;
+  border-bottom: 1px solid #333;
 }
 
 .create-project .input-group {
